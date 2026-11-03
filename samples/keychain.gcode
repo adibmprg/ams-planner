@@ -1,0 +1,16 @@
+; HEADER_BLOCK_START
+; BambuStudio 02.02.00.85
+; model printing time: 1h 20m 3s; total estimated time: 1h 26m 41s
+; HEADER_BLOCK_END
+; CONFIG_BLOCK_START
+; filament_colour = #000000;#FFFFFF;#FF0000;#0000FF
+; filament_type = PLA;PLA;PLA;PETG
+; CONFIG_BLOCK_END
+M620 S0A
+T0
+G1 X10 Y10
+M620 S2A
+T2
+G1 X20
+M620 S255
+T255
