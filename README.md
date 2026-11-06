@@ -29,7 +29,7 @@ python3 -m amsplanner plan ~/Downloads/*.gcode.3mf --ams "PLA:#000000,PLA:#FFFFF
 | `.gcode` | warna, jenis, slot yang dipakai (dari M620/T), estimasi waktu |
 | `.gcode.3mf` (sudah di-slice) | per plate: warna, jenis, estimasi waktu (`slice_info.config`) |
 | `.3mf` proyek Bambu (belum di-slice) | warna dan jenis (`project_settings.config`), filamen per part (`model_settings.config`) dan warna hasil painting (`paint_color`) |
-| `.3mf` dari software CAD | warna yang dipakai model (colour group 3MF); jenis filamen dipilih dari riwayat |
+| `.3mf` dari software CAD | warna yang dipakai model (colour group 3MF); jenis filamen dipilih dari riwayat, atau warna dipetakan ke spool terdekat di riwayat |
 | Lainnya / tidak terbaca | diisi manual, cukup klik dari riwayat filamen |
 
 Riwayat filamen disimpan di `~/Library/Application Support/AMSPlanner/filament_history.json`.
@@ -37,7 +37,7 @@ Riwayat filamen disimpan di `~/Library/Application Support/AMSPlanner/filament_h
 ## Waktu ganti spool
 
 Nilai waktu ganti per kunjungan (hasil pengukuran pada A1 mini + AMS lite) ada di `amsplanner/model.py`:
-1 spool = 45 s, 2 = 80 s, 3 = 110 s, 4 = 150 s. Ubah nilainya kalau printer atau operator Anda berbeda.
+1 spool = 46 s, 2 = 74,5 s, 3 = 103 s, 4 = 134,7 s (rata-rata 10 percobaan). Ubah nilainya kalau printer atau operator Anda berbeda.
 
 ## Mereproduksi hasil paper
 

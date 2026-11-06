@@ -6,7 +6,7 @@ import re
 
 # Measured mean manual changeover time (seconds) per changeover event,
 # indexed by the number of spools exchanged in that event (AMS lite, A1 mini).
-SWITCH_TIME_S: Dict[int, float] = {0: 0.0, 1: 45.0, 2: 80.0, 3: 110.0, 4: 150.0}
+SWITCH_TIME_S: Dict[int, float] = {0: 0.0, 1: 46.0, 2: 74.5, 3: 103.0, 4: 134.7}
 AMS_CAPACITY = 4
 
 _HEX6 = re.compile(r"^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")

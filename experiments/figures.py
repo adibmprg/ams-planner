@@ -3,6 +3,10 @@ import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Rectangle
 import numpy as np
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from amsplanner.model import SWITCH_TIME_S as TS
+fmt_s = lambda v: f"{v:g}"
 plt.rcParams.update({"font.family": "Liberation Serif", "font.size": 8, "axes.linewidth": 0.6,
                      "xtick.major.width": 0.6, "ytick.major.width": 0.6, "axes.spines.top": False,
                      "axes.spines.right": False, "legend.frameon": False, "savefig.dpi": 600})
@@ -29,7 +33,7 @@ def slots_panel(ax, title, seq_labels, slots_seq, ks, total):
             if code:
                 ax.text(x + 0.4, y + 0.31, code, ha="center", va="center", fontsize=7,
                         color="white" if code in ("BK", "BL", "RD", "PB", "GN") else "black")
-        ax.text(x + 0.4, 0.62, "no change" if k == 0 else f"{k} spool{'s' if k > 1 else ''}\n{[0,45,80,110,150][k]} s",
+        ax.text(x + 0.4, 0.62, "no change" if k == 0 else f"{k} spool{'s' if k > 1 else ''}\n{fmt_s(TS[k])} s",
                 ha="center", va="top", fontsize=7, color="#b3261e" if k else "#555")
     ax.text(1.6, -0.85, f"Total: {total:.0f} s", ha="center", fontweight="bold")
 ex = CASE["example"]
@@ -41,16 +45,16 @@ fig.text(0.5, 0.005, "Slots 1–4 of the AMS lite shown top to bottom. J1 = {BK,
 fig.tight_layout(rect=(0, 0.04, 1, 1)); fig.savefig("figs/fig1_example.png"); plt.close(fig)
 
 # Fig 2: measured changeover time ------------------------------------------
-k = np.array([1, 2, 3, 4]); t = np.array([45, 80, 110, 150])
+k = np.array([1, 2, 3, 4]); t = np.array([TS[1], TS[2], TS[3], TS[4]])
 b, a = np.polyfit(k, t, 1); pred = a + b * k
 r2 = 1 - ((t - pred) ** 2).sum() / ((t - t.mean()) ** 2).sum()
 fig, axs = plt.subplots(1, 2, figsize=(W, 1.85))
 ax = axs[0]
-ax.plot(k, 45 * k, "--", color="#9a9a9a", lw=0.9, label="k separate visits (45k)")
+ax.plot(k, TS[1] * k, "--", color="#9a9a9a", lw=0.9, label=f"k separate visits ({fmt_s(TS[1])}k)")
 ax.plot(np.linspace(0.8, 4.2, 10), a + b * np.linspace(0.8, 4.2, 10), "-", color="#2b6cb0", lw=0.9,
         label=f"fit: {a:.1f} + {b:.1f}k (R² = {r2:.3f})")
 ax.plot(k, t, "o", color="#1d1d1d", ms=4, label="measured mean")
-for ki, ti in zip(k, t): ax.annotate(f"{ti} s", (ki, ti), textcoords="offset points", xytext=(6, -10), fontsize=7)
+for ki, ti in zip(k, t): ax.annotate(f"{fmt_s(ti)} s", (ki, ti), textcoords="offset points", xytext=(6, -10), fontsize=7)
 ax.set_xticks(k); ax.set_xlabel("spools exchanged in one visit, k"); ax.set_ylabel("changeover time (s)")
 ax.set_ylim(0, 230); ax.legend(fontsize=6.3, loc="upper left")
 ax = axs[1]
@@ -136,11 +140,11 @@ print("figures ok", a, b, r2)
 
 # ---- compact single-panel versions for the 12-page manuscript ----
 fig, ax = plt.subplots(figsize=(3.3, 1.75))
-ax.plot(k, 45 * k, "--", color="#9a9a9a", lw=0.9, label="k separate visits (45k)")
+ax.plot(k, TS[1] * k, "--", color="#9a9a9a", lw=0.9, label=f"k separate visits ({fmt_s(TS[1])}k)")
 ax.plot(np.linspace(0.8, 4.2, 10), a + b * np.linspace(0.8, 4.2, 10), "-", color="#2b6cb0", lw=0.9,
         label=f"fit: {a:.1f} + {b:.1f}k (R² = {r2:.3f})")
 ax.plot(k, t, "o", color="#1d1d1d", ms=4, label="measured mean")
-for ki, ti in zip(k, t): ax.annotate(f"{ti} s", (ki, ti), textcoords="offset points", xytext=(6, -10), fontsize=7)
+for ki, ti in zip(k, t): ax.annotate(f"{fmt_s(ti)} s", (ki, ti), textcoords="offset points", xytext=(6, -10), fontsize=7)
 ax.set_xticks(k); ax.set_xlabel("spools exchanged in one visit, k"); ax.set_ylabel("changeover time (s)")
 ax.set_ylim(0, 230); ax.legend(fontsize=6.3, loc="upper left")
 fig.tight_layout(); fig.savefig("figs/fig2_single.png"); plt.close(fig)
