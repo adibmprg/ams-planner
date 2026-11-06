@@ -5,6 +5,7 @@ from .model import Job, AMS_CAPACITY, switch_time
 from . import sequencing as sq
 
 METHODS = {"fifo": sq.fifo, "greedy": sq.greedy, "ils": sq.ils, "ga": sq.genetic}
+PRIORITY = ["ils", "ga", "greedy", "fifo"]
 
 
 def slot_instructions(states, initial_slots: List[str], C: int = AMS_CAPACITY):
@@ -28,26 +29,37 @@ def slot_instructions(states, initial_slots: List[str], C: int = AMS_CAPACITY):
     return steps
 
 
-def plan(jobs: Sequence[Job], initial: List[str], method: str = "ga", exact: bool = True, seed: int = 0) -> Dict:
+def plan(jobs: Sequence[Job], initial: List[str], method: str = "auto", exact: bool = True, seed: int = 0) -> Dict:
+    """method="auto" runs every algorithm and returns the best plan, with a
+    comparison table under "comparison"."""
+    if method == "auto":
+        res = [plan(jobs, initial, m, exact, seed) for m in PRIORITY]
+        best = min(res, key=lambda r: (r["total_s"], r["events"], PRIORITY.index(r["method"])))
+        best = dict(best)
+        best["comparison"] = [{k: r[k] for k in ("method", "total_s", "events", "swaps", "cpu_s")} for r in res]
+        return best
+    import time as _t
+    _t0 = _t.perf_counter()
     req = [j.filaments for j in jobs]
     for j in jobs:
         if len(j.filaments) > AMS_CAPACITY:
             raise ValueError(f"{j.name} needs more than {AMS_CAPACITY} filaments")
     order = METHODS[method](req, initial, seed=seed) if method in ("ils", "ga") else METHODS[method](req, initial)
-    base = sq.ktns(req, list(range(len(jobs))), initial)
-    res = sq.ktns(req, order, initial)
-    pre = sq.ktns(req, order, initial, prefetch=True)
-    if pre["time"] < res["time"]:
-        res = pre
-    if exact:
-        try:
-            ex = sq.exact_loading(req, order, initial)
-            if ex["time"] < res["time"]:
-                res = ex
-        except Exception:
-            pass
+    def best_loading(o):
+        r = min(sq.ktns(req, o, initial), sq.ktns(req, o, initial, prefetch=True), key=lambda x: x["time"])
+        if exact:
+            try:
+                ex = sq.exact_loading(req, o, initial)
+                if ex["time"] < r["time"] - 1e-9:
+                    r = ex
+            except Exception:
+                pass
+        return r
+    base = best_loading(list(range(len(jobs))))      # FIFO evaluated with the same loading rules
+    res = best_loading(order)
     steps = slot_instructions(res["states"], initial)
     return {
+        "method": method, "cpu_s": _t.perf_counter() - _t0,
         "order": [jobs[i].name for i in order],
         "order_idx": order,
         "steps": [{"job": jobs[i].name, **s, "k": k, "seconds": switch_time(k)}

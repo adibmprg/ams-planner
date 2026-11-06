@@ -187,6 +187,8 @@ def genetic(req: Req, initial=(), C=AMS_CAPACITY, pop: int = 40, gens: int = 150
     """Permutation GA: tournament(3), order crossover, swap mutation, elitism(2);
     the population is seeded with the FIFO and greedy orders."""
     rng = random.Random(seed); n = len(req)
+    if n < 2:
+        return fifo(req)
     P = [fifo(req), greedy(req, initial, C)] + [rng.sample(range(n), n) for _ in range(pop - 2)]
     F = [cost(req, p, initial, C) for p in P]
     for g in range(gens):

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AMS Planner</title>
+<style>
+:root{--ink:#1d1d1b;--mut:#666;--line:#e3e3e0;--blue:#2b6cb0;--good:#2e7d32;--bad:#b3261e}
+*{box-sizing:border-box}
+body{font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;margin:0;background:#f6f6f4;color:var(--ink)}
+header{background:var(--ink);color:#fff;padding:12px 24px;font-weight:600;font-size:16px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+header small{font-weight:400;color:#bbb}
+main{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;padding:16px 24px;max-width:1500px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}#sec-plan{grid-column:auto!important}}
+section{background:#fff;border:1px solid #ddd;border-radius:8px;padding:14px;min-width:0}
+h2{font-size:14px;margin:0 0 10px}h3{font-size:13px;margin:14px 0 6px}
+#drop{border:2px dashed #aaa;border-radius:8px;padding:14px;text-align:center;color:var(--mut);margin-bottom:8px}
+#drop.over{border-color:var(--blue);background:#f1f6fd}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #eee;padding:6px 5px;text-align:left;font-size:13px;vertical-align:top}
+th{color:#555;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #ccc;border-radius:12px;padding:2px 9px;margin:2px;font-size:12px;cursor:pointer;background:#fff;white-space:nowrap}
+.chip.unk{border:1.5px dashed var(--bad);background:#fff5f4}
+.chip small{color:#777}
+.sw{width:12px;height:12px;border-radius:50%;border:1px solid #888;display:inline-block}
+.miss{color:var(--bad);font-size:12px;margin-top:3px}.ok{color:var(--good);font-size:12px}
+.slot{display:flex;gap:8px;align-items:center;margin:5px 0}.slot b{width:46px}
+button{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px}
+button.sec{background:#eef2f7;color:var(--ink)}button.link{background:none;color:var(--blue);padding:2px 4px;text-decoration:underline}
+button:disabled{opacity:.5;cursor:default}
+select,input{font-size:13px;padding:3px}
+.kpi{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}.kpi div{background:#f1f5fb;border-radius:6px;padding:8px 12px;font-size:12px}
+.kpi b{display:block;font-size:19px}.kpi .good{background:#e8f5ee}
+.src{font-size:11px;background:#eee;border-radius:4px;padding:1px 6px}
+.act{font-size:12px}.act > span{display:inline-block;margin:1px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#cmp tr.best td{background:#e8f5ee}#cmp tr.shown td:first-child{box-shadow:inset 4px 0 0 var(--blue);font-weight:600}
+#cmp td.num,#cmp th.num{text-align:right;font-variant-numeric:tabular-nums}
+.bar{height:8px;background:var(--blue);border-radius:4px;opacity:.75}
+.tag{font-size:11px;border-radius:4px;padding:1px 6px;background:var(--good);color:#fff;margin-left:6px}
+.hint{font-size:12px;color:var(--mut)}
+.x{color:#999;cursor:pointer;margin-left:6px}
+#busy{display:none;color:var(--mut);font-size:12px;margin-left:8px}
+</style></head><body>
+<header>AMS Planner<small>filament-aware print sequencing for AMS lite (4 slots) · runs entirely in this browser, no installation</small></header>
+<main>
+<section id="sec-jobs"><h2>1. Print jobs</h2>
+<div id="drop">Drop .gcode, .gcode.3mf or .3mf files here, or <input type="file" id="fi" multiple accept=".gcode,.gco,.3mf"></div>
+<table id="jobs"><thead><tr><th>Job / plate</th><th>Filaments (type · colour)</th><th>Source</th><th>Est. time</th><th></th></tr></thead><tbody></tbody></table>
+<p class="row"><button class="sec" onclick="addManual()">+ Add job manually</button><button class="sec" onclick="clearJobs()">Clear list</button><button class="sec" onclick="loadExample()">Load example batch</button><span class="hint" id="jobsum"></span></p></section>
+
+<section id="sec-side"><h2>2. Filament history</h2>
+<div class="hint" style="margin-bottom:6px">Most used first, stored in this browser. Select a job, then click a chip to add it.</div>
+<div id="hist"></div>
+<h3>Add a new filament</h3>
+<div class="row"><select id="nt"></select>
+<input type="color" id="nc" value="#ff0000"> <input id="nl" placeholder="label (optional)" size="12"> <button onclick="newFil()">Save</button></div>
+<div class="row" style="margin-top:8px"><button class="link" onclick="exportHist()">Export history</button><button class="link" onclick="hi.click()">Import history</button><input type="file" id="hi" accept=".json" style="display:none"></div>
+<h3>3. Current AMS content</h3><div id="ams"></div></section>
+
+<section id="sec-plan" style="grid-column:1/3"><h2>4. Plan</h2>
+<div class="row">Method <select id="m">
+<option value="auto">Auto: compare all algorithms and use the best (recommended)</option>
+<option value="ils">Iterated local search (ILS)</option>
+<option value="ga">Genetic algorithm (GA)</option>
+<option value="greedy">Greedy (fewest missing spools next)</option>
+<option value="exact">Exact enumeration (up to 8 jobs)</option>
+<option value="fifo">FIFO (as listed)</option></select>
+<button id="go" onclick="run()">Compute print order</button><span id="busy">computing…</span></div>
+<div id="cmpbox"></div>
+<div id="out"></div></section></main>
+
+<!-- ===================================================================== core (no DOM except XML parsing) -->
+<script id="core">
+"use strict";
+const SWITCH_TIME_S = {0: 0, 1: 46.0, 2: 74.5, 3: 103.0, 4: 134.7};   // measured, AMS lite / A1 mini
+const AMS_CAPACITY = 4;
+const switchTime = k => { if (k <= 0) return 0; if (k in SWITCH_TIME_S) return SWITCH_TIME_S[k]; throw new Error("an AMS lite holds at most 4 spools"); };
+
+// ---------------------------------------------------------------- normalisation
+function normalizeColor(c) {
+  if (!c) return null;
+  const m = /^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(String(c).trim().replace(/^"|"$/g, ""));
+  return m ? "#" + m[1].toUpperCase() : null;
+}
+function normalizeType(t) { if (!t) return null; t = String(t).trim().replace(/^"|"$/g, "").toUpperCase(); return t || null; }
+const fkey = (t, c) => `${t || "?"}:${c || "?"}`;
+function parseDuration(s) {
+  const m = /(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/.exec(String(s).trim());
+  if (!m || !m.slice(1).some(Boolean)) return null;
+  const [d, h, mi, se] = m.slice(1).map(x => x ? +x : 0);
+  return d * 86400 + h * 3600 + mi * 60 + se;
+}
+const splitList = v => { v = (v || "").trim(); return v ? v.split(/[;,]/).map(p => p.trim().replace(/^"|"$/g, "")) : []; };
+const job = (name, filaments, est, source, missing) => ({name, filaments: [...new Set(filaments)].sort(), est_time_s: est, source, missing});
+
+// ---------------------------------------------------------------- G-code
+function parseGcodeText(text, name = "job", source = "gcode") {
+  const cfg = {}; let est = null; const used = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    if (line.startsWith(";")) {
+      const body = line.slice(1).trim();
+      if (body.includes("total estimated time:")) est = parseDuration(body.split("total estimated time:")[1]);
+      else if (body.startsWith("estimated printing time") && body.includes("=")) est = est ?? parseDuration(body.split("=").slice(1).join("="));
+      else if (body.includes(" = ")) { const i = body.indexOf(" = "); const k = body.slice(0, i).trim(); if (!(k in cfg)) cfg[k] = body.slice(i + 3).trim(); }
+      continue;
+    }
+    const s = line.split(";")[0].trim();
+    let m = /^M620\s+S(\d+)A/.exec(s); if (m && +m[1] < 255) used.add(+m[1]);
+    m = /^T(\d+)\b/.exec(s); if (m && +m[1] < 255) used.add(+m[1]);
+  }
+  const colors = splitList(cfg.filament_colour).map(normalizeColor), types = splitList(cfg.filament_type).map(normalizeType);
+  const n = Math.max(colors.length, types.length);
+  let slots = [...used].sort((a, b) => a - b);
+  if (!slots.length && n === 1) slots = [0];
+  const missing = [], keys = [];
+  for (const i of slots) {
+    const c = colors[i] ?? null, t = types[i] ?? null;
+    if (c == null) missing.push(`colour of slot ${i + 1}`);
+    if (t == null) missing.push(`type of slot ${i + 1}`);
+    keys.push(fkey(t, c));
+  }
+  if (!keys.length) missing.push("filaments used");
+  if (est == null) missing.push("print time");
+  return job(name, keys, est, source, missing);
+}
+
+// ---------------------------------------------------------------- minimal ZIP reader (stored + deflate, zip64)
+async function inflateRaw(u8) {
+  if (typeof DecompressionStream === "undefined") throw new Error("This browser cannot unzip 3MF files (update Safari/Chrome/Firefox).");
+  const ds = new DecompressionStream("deflate-raw");
+  const out = new Response(new Blob([u8]).stream().pipeThrough(ds));
+  return new Uint8Array(await out.arrayBuffer());
+}
+function openZip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let e = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error("not a zip/3MF file");
+  let count = dv.getUint16(e + 10, true), cd = dv.getUint32(e + 16, true);
+  if (cd === 0xFFFFFFFF || count === 0xFFFF) {                       // zip64
+    const loc = e - 20;
+    if (loc >= 0 && dv.getUint32(loc, true) === 0x07064b50) {
+      const z64 = Number(dv.getBigUint64(loc + 8, true));
+      count = Number(dv.getBigUint64(z64 + 32, true)); cd = Number(dv.getBigUint64(z64 + 48, true));
+    }
+  }
+  const entries = {}; const dec = new TextDecoder();
+  let p = cd;
+  for (let i = 0; i < count && dv.getUint32(p, true) === 0x02014b50; i++) {
+    const method = dv.getUint16(p + 10, true);
+    let csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true);
+    const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    let off = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nl));
+    let x = p + 46 + nl; const xe = x + xl;
+    while (x + 4 <= xe) {
+      const id = dv.getUint16(x, true), sz = dv.getUint16(x + 2, true); let q = x + 4;
+      if (id === 1) {
+        if (usize === 0xFFFFFFFF) { usize = Number(dv.getBigUint64(q, true)); q += 8; }
+        if (csize === 0xFFFFFFFF) { csize = Number(dv.getBigUint64(q, true)); q += 8; }
+        if (off === 0xFFFFFFFF) { off = Number(dv.getBigUint64(q, true)); q += 8; }
+      }
+      x += 4 + sz;
+    }
+    entries[name] = {method, csize, off};
+    p += 46 + nl + xl + cl;
+  }
+  return {
+    names: Object.keys(entries),
+    async text(name) {
+      const en = entries[name]; if (!en) return null;
+      const ln = dv.getUint16(en.off + 26, true), lx = dv.getUint16(en.off + 28, true);
+      const start = en.off + 30 + ln + lx, raw = u8.subarray(start, start + en.csize);
+      const data = en.method === 0 ? raw : en.method === 8 ? await inflateRaw(raw) : null;
+      if (!data) throw new Error(`unsupported compression in ${name}`);
+      return dec.decode(data);
+    }
+  };
+}
+
+// ---------------------------------------------------------------- 3MF
+const xmlKids = (el, tag) => Array.from(el.childNodes).filter(n => n.nodeType === 1 && n.nodeName === tag);
+const metaOf = el => Object.fromEntries(xmlKids(el, "metadata").map(m => [m.getAttribute("key"), m.getAttribute("value")]));
+
+function paintStates(code) {           // TriangleSelector string -> set of leaf states
+  const nib = [...code].reverse().map(c => parseInt(c, 16)); const out = new Set(); let i = 0;
+  while (i < nib.length) {
+    const n = nib[i++]; if (n & 3) continue;
+    let st = n >> 2; if (st === 3 && i < nib.length) st = 3 + nib[i++];
+    out.add(st);
+  }
+  return out;
+}
+async function paintedParts(z) {
+  const res = {};
+  for (const name of z.names) {
+    if (!(name.startsWith("3D/Objects/") && name.endsWith(".model"))) continue;
+    const x = await z.text(name); const parts = {};
+    for (const m of x.matchAll(/<object\s+id="(\d+)"[^>]*>([\s\S]*?)<\/object>/g)) {
+      const painted = new Set(); let unpainted = false;
+      for (const t of m[2].matchAll(/<triangle\b[^>]*>/g)) {
+        const pc = /paint_color="([0-9A-Fa-f]+)"/.exec(t[0]);
+        if (!pc) { unpainted = true; continue; }
+        const st = paintStates(pc[1]); if (st.has(0)) unpainted = true;
+        for (const v of st) if (v > 0) painted.add(v);
+      }
+      parts[m[1]] = [painted, unpainted];
+    }
+    res["/" + name] = parts;
+  }
+  return res;
+}
+function coreModelColours(x) {
+  const groups = {};
+  for (const m of x.matchAll(/<(?:\w+:)?colorgroup\s+id="(\d+)"[^>]*>([\s\S]*?)<\/(?:\w+:)?colorgroup>/g)) groups[m[1]] = [...m[2].matchAll(/color="([^"]+)"/g)].map(a => a[1]);
+  for (const m of x.matchAll(/<(?:\w+:)?basematerials\s+id="(\d+)"[^>]*>([\s\S]*?)<\/(?:\w+:)?basematerials>/g)) groups[m[1]] = [...m[2].matchAll(/displaycolor="([^"]+)"/g)].map(a => a[1]);
+  const used = new Set();
+  for (const t of x.matchAll(/<(?:object|triangle)\b[^>]*>/g)) {
+    const pid = /\bpid="(\d+)"/.exec(t[0]); if (!pid || !(pid[1] in groups)) continue;
+    for (const a of ["pindex", "p1", "p2", "p3"]) { const v = new RegExp("\\b" + a + '="(\\d+)"').exec(t[0]); if (v) used.add(pid[1] + "|" + v[1]); }
+  }
+  const cols = [];
+  for (const u of [...used].sort()) { const [g, i] = u.split("|"); const c = +i < groups[g].length ? normalizeColor(groups[g][+i]) : null; if (c && !cols.includes(c)) cols.push(c); }
+  return cols;
+}
+async function parse3mf(buf, base, parseXML) {
+  const z = openZip(buf);
+  const si = await z.text("Metadata/slice_info.config");
+  if (si) {                                                     // sliced project
+    const jobs = []; const root = parseXML(si);
+    for (const plate of Array.from(root.getElementsByTagName("plate"))) {
+      const meta = metaOf(plate); const keys = [], missing = [];
+      for (const f of xmlKids(plate, "filament")) {
+        const c = normalizeColor(f.getAttribute("color")), t = normalizeType(f.getAttribute("type"));
+        if (c == null) missing.push(`colour of slot ${f.getAttribute("id")}`);
+        if (t == null) missing.push(`type of slot ${f.getAttribute("id")}`);
+        keys.push(fkey(t, c));
+      }
+      const est = meta.prediction ? +meta.prediction : null; if (est == null) missing.push("print time");
+      jobs.push(job(`${base} / plate ${meta.index || jobs.length + 1}`, keys, est, "gcode.3mf", missing));
+    }
+    if (jobs.length) return jobs;
+  }
+  const gfiles = z.names.filter(n => /^Metadata\/plate_\d+\.gcode$/.test(n)).sort();
+  if (gfiles.length) { const out = []; for (const g of gfiles) out.push(parseGcodeText(await z.text(g), `${base} / ${g.split("/").pop()}`, "gcode.3mf")); return out; }
+  let colors = [], types = [];                                   // unsliced project
+  const ps = await z.text("Metadata/project_settings.config");
+  if (ps) { try { const cfg = JSON.parse(ps); colors = (cfg.filament_colour || []).map(normalizeColor); types = (cfg.filament_type || []).map(normalizeType); } catch (e) {} }
+  const ms = await z.text("Metadata/model_settings.config"); const jobs = [];
+  if (ms) {
+    const root = parseXML(ms); const paint = await paintedParts(z);
+    const model = (await z.text("3D/3dmodel.model")) || ""; const comps = {};
+    for (const m of model.matchAll(/<object\s+id="(\d+)"[^>]*>([\s\S]*?)<\/object>/g))
+      comps[m[1]] = [...m[2].matchAll(/<component\s+[^>]*?path="([^"]+)"[^>]*?objectid="(\d+)"/g)].map(a => [a[1], a[2]]);
+    const extOf = el => { const v = metaOf(el).extruder; return v && /^\d+$/.test(v) ? +v : null; };
+    const objExt = {};
+    for (const obj of xmlKids(root, "object")) {
+      const def = extOf(obj) ?? 1; const partExt = {};
+      for (const part of xmlKids(obj, "part")) partExt[part.getAttribute("id")] = extOf(part) ?? def;
+      let ex = new Set(); const parts = comps[obj.getAttribute("id")] || [];
+      if (parts.length) for (const [path, sub] of parts) {
+        const [painted, unpainted] = (paint[path] || {})[sub] || [new Set(), true];
+        painted.forEach(v => ex.add(v)); if (unpainted) ex.add(partExt[sub] ?? def);
+      } else ex = new Set(Object.values(partExt).length ? Object.values(partExt) : [def]);
+      objExt[obj.getAttribute("id")] = ex.size ? ex : new Set([def]);
+    }
+    for (const plate of xmlKids(root, "plate")) {
+      const meta = metaOf(plate); const slots = new Set();
+      for (const inst of xmlKids(plate, "model_instance")) (objExt[metaOf(inst).object_id] || new Set([1])).forEach(s => slots.add(s));
+      const keys = [], missing = [];
+      for (const s of [...slots].sort((a, b) => a - b)) {
+        const c = colors[s - 1] ?? null, t = types[s - 1] ?? null;
+        if (c == null) missing.push(`colour of slot ${s}`); if (t == null) missing.push(`type of slot ${s}`);
+        keys.push(fkey(t, c));
+      }
+      missing.push("print time");
+      jobs.push(job(`${base} / plate ${meta.plater_id || jobs.length + 1}`, keys, null, "project.3mf", missing));
+    }
+  }
+  if (!jobs.length && !colors.length) {                          // CAD export: core-3MF colours only
+    const cols = coreModelColours((await z.text("3D/3dmodel.model")) || "");
+    const miss = cols.length ? cols.map(c => `type of colour ${c}`) : ["filaments used"];
+    return [job(base, cols.map(c => fkey(null, c)), null, "core.3mf", [...miss, "print time"])];
+  }
+  if (!jobs.length) {
+    const keys = colors.map((c, i) => fkey(types[i], c));
+    const miss = colors.map((c, i) => types[i] ? null : `type of slot ${i + 1}`).filter(Boolean);
+    jobs.push(job(base, keys, null, "project.3mf", [...miss, "filaments used per plate", "print time"]));
+  }
+  return jobs;
+}
+async function parseFile(name, buf, parseXML) {
+  const p = name.toLowerCase();
+  if (p.endsWith(".gcode") || p.endsWith(".gco")) return [parseGcodeText(new TextDecoder().decode(buf), name)];
+  if (p.endsWith(".3mf")) return parse3mf(buf, name, parseXML);
+  throw new Error(`unsupported file: ${name}`);
+}
+
+// ---------------------------------------------------------------- loading for a fixed order
+function nextUse(req, order, pos, t) { for (let q = pos; q < order.length; q++) if (req[order[q]].has(t)) return q; return Infinity; }
+function ktns(req, order, initial = [], C = AMS_CAPACITY, prefetch = false) {
+  const mag = new Set(initial); const ks = [], states = [];
+  order.forEach((j, pos) => {
+    const need = req[j]; const missing = [...need].filter(t => !mag.has(t)); let k = missing.length;
+    if (k) {
+      const overflow = mag.size + k - C;
+      if (overflow > 0) {
+        const cand = [...mag].filter(t => !need.has(t)).sort((a, b) => nextUse(req, order, pos + 1, b) - nextUse(req, order, pos + 1, a) || (a < b ? -1 : 1));
+        cand.slice(0, overflow).forEach(t => mag.delete(t));
+      }
+      missing.forEach(t => mag.add(t));
+      if (prefetch) {
+        const dead = [...mag].filter(t => !need.has(t) && nextUse(req, order, pos + 1, t) === Infinity);
+        const up = [];
+        for (let q = pos + 1; q < order.length; q++) for (const t of [...req[order[q]]].sort()) if (!mag.has(t) && !up.includes(t)) up.push(t);
+        let free = C - mag.size;
+        for (const t of up) {
+          if (free > 0) { mag.add(t); k++; free--; }
+          else if (dead.length) { mag.delete(dead.pop()); mag.add(t); k++; }
+          else break;
+        }
+      }
+    }
+    ks.push(k); states.push(new Set(mag));
+  });
+  return {k: ks, states, swaps: ks.reduce((a, b) => a + b, 0), events: ks.filter(Boolean).length, time: ks.reduce((a, k) => a + switchTime(k), 0)};
+}
+const cost = (req, order, init, C) => Math.min(ktns(req, order, init, C).time, ktns(req, order, init, C, true).time);
+
+function exactLoading(req, order, initial = [], C = AMS_CAPACITY, maxStates = 2000) {
+  const uni = [...new Set([...order.flatMap(j => [...req[j]]), ...initial])].sort();
+  const idx = Object.fromEntries(uni.map((t, i) => [t, i]));
+  const masks = []; const rec = (start, m, size) => { masks.push(m); if (size < C) for (let i = start; i < uni.length; i++) rec(i + 1, m | (1 << i), size + 1); };
+  rec(0, 0, 0);
+  const S = masks.length; if (S > maxStates || uni.length > 30) return null;
+  const pc = x => { let c = 0; while (x) { x &= x - 1; c++; } return c; };
+  const initM = initial.reduce((m, t) => m | (1 << idx[t]), 0);
+  let dp = new Float64Array(S).fill(Infinity); const s0 = masks.indexOf(initM); if (s0 < 0) return null; dp[s0] = 0;
+  const T = new Float64Array(S * S);
+  for (let a = 0; a < S; a++) for (let b = 0; b < S; b++) T[a * S + b] = switchTime(pc(masks[b] & ~masks[a]));
+  const back = [];
+  for (const j of order) {
+    const need = [...req[j]].reduce((m, t) => m | (1 << idx[t]), 0);
+    const nd = new Float64Array(S).fill(Infinity), arg = new Int32Array(S).fill(-1);
+    for (let b = 0; b < S; b++) {
+      if ((masks[b] & need) !== need) continue;
+      let best = Infinity, ba = -1;
+      for (let a = 0; a < S; a++) { const v = dp[a] + T[a * S + b]; if (v < best) { best = v; ba = a; } }
+      nd[b] = best; arg[b] = ba;
+    }
+    back.push(arg); dp = nd;
+  }
+  let end = 0; for (let b = 1; b < S; b++) if (dp[b] < dp[end]) end = b;
+  const path = [end]; for (let i = back.length - 1; i > 0; i--) path.push(back[i][path[path.length - 1]]); path.reverse();
+  const states = path.map(p => new Set(uni.filter((_, i) => masks[p] & (1 << i))));
+  let prev = new Set(initial); const ks = states.map(s => { const k = [...s].filter(t => !prev.has(t)).length; prev = s; return k; });
+  return {time: dp[end], k: ks, states, swaps: ks.reduce((a, b) => a + b, 0), events: ks.filter(Boolean).length};
+}
+function bestLoading(req, order, initial, C = AMS_CAPACITY) {
+  let r = ktns(req, order, initial, C); const p = ktns(req, order, initial, C, true); if (p.time < r.time) r = p;
+  const ex = exactLoading(req, order, initial, C); if (ex && ex.time < r.time - 1e-9) r = ex;
+  return r;
+}
+
+// ---------------------------------------------------------------- sequencing
+function rngOf(seed) { let a = (seed + 0x9E3779B9) >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const randInt = (rng, n) => Math.floor(rng() * n);
+function sample2(rng, n) { const a = randInt(rng, n); let b = randInt(rng, n - 1); if (b >= a) b++; return [a, b]; }
+function shuffle(rng, a) { for (let i = a.length - 1; i > 0; i--) { const j = randInt(rng, i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+const fifo = req => req.map((_, i) => i);
+function greedy(req, initial, C = AMS_CAPACITY) {
+  const left = fifo(req), order = []; let mag = new Set(initial);
+  while (left.length) {
+    let best = null, bk = null;
+    for (const j of left) {
+      const key = [[...req[j]].filter(t => !mag.has(t)).length, -[...req[j]].filter(t => mag.has(t)).length, j];
+      if (!bk || key[0] < bk[0] || (key[0] === bk[0] && (key[1] < bk[1] || (key[1] === bk[1] && key[2] < bk[2])))) { bk = key; best = j; }
+    }
+    order.push(best); left.splice(left.indexOf(best), 1);
+    const r = ktns(req, order, initial, C); mag = r.states[r.states.length - 1];
+  }
+  return order;
+}
+function ils(req, initial, C = AMS_CAPACITY, budget = 6000, seed = 0) {
+  const rng = rngOf(seed), n = req.length; let used = 0;
+  const f = o => { used++; return cost(req, o, initial, C); };
+  const moves = []; for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) if (i !== k) moves.push([i, k]);
+  const descent = (o, c) => {
+    let improved = true;
+    while (improved && used < budget) {
+      improved = false; shuffle(rng, moves);
+      for (const [i, k] of moves) {
+        if (used >= budget) break;
+        const o2 = o.slice(); const x = o2.splice(i, 1)[0]; o2.splice(k, 0, x);
+        const c2 = f(o2); if (c2 < c - 1e-9) { o = o2; c = c2; improved = true; break; }
+      }
+    }
+    return [o, c];
+  };
+  let cur = greedy(req, initial, C), curC = f(cur); [cur, curC] = descent(cur, curC);
+  let best = cur.slice(), bestC = curC;
+  while (used < budget && n > 1) {
+    let o = cur.slice();
+    for (let r = 0; r < 2; r++) { const [a, b] = sample2(rng, n); [o[a], o[b]] = [o[b], o[a]]; }
+    let c; [o, c] = descent(o, f(o));
+    if (c <= curC + 1e-9) { cur = o; curC = c; }
+    if (c < bestC - 1e-9) { best = o.slice(); bestC = c; }
+  }
+  return best;
+}
+function ox(p1, p2, rng) {
+  const n = p1.length; let [a, b] = sample2(rng, n); if (a > b) [a, b] = [b, a];
+  const child = Array(n).fill(null); for (let i = a; i <= b; i++) child[i] = p1[i];
+  const seg = new Set(child.filter(x => x !== null)); const fill = p2.filter(g => !seg.has(g)); let it = 0;
+  return child.map(g => g !== null ? g : fill[it++]);
+}
+function genetic(req, initial, C = AMS_CAPACITY, pop = 40, gens = 150, pc = 0.9, pm = 0.2, seed = 0) {
+  const rng = rngOf(seed + 7), n = req.length;
+  if (n < 2) return fifo(req);
+  let P = [fifo(req), greedy(req, initial, C)]; while (P.length < pop) P.push(shuffle(rng, fifo(req)));
+  let F = P.map(p => cost(req, p, initial, C));
+  const tour = () => { let b = randInt(rng, pop); for (let i = 0; i < 2; i++) { const c = randInt(rng, pop); if (F[c] < F[b]) b = c; } return P[b]; };
+  for (let g = 0; g < gens; g++) {
+    const elite = P.map((_, i) => i).sort((a, b) => F[a] - F[b]).slice(0, 2);
+    const NP = elite.map(i => P[i].slice());
+    while (NP.length < pop) {
+      const a = tour(), b = tour(); const ch = rng() < pc ? ox(a, b, rng) : a.slice();
+      if (rng() < pm) { const [i, k] = sample2(rng, n); [ch[i], ch[k]] = [ch[k], ch[i]]; }
+      NP.push(ch);
+    }
+    P = NP; F = P.map(p => cost(req, p, initial, C));
+  }
+  let bi = 0; F.forEach((v, i) => { if (v < F[bi]) bi = i; }); return P[bi];
+}
+function enumerateBest(req, initial, C = AMS_CAPACITY) {
+  const n = req.length; const a = fifo(req); let best = a.slice(), bc = cost(req, a, initial, C);
+  const c = Array(n).fill(0); let i = 0;                            // Heap's algorithm
+  while (i < n) {
+    if (c[i] < i) { const s = i % 2 ? c[i] : 0; [a[s], a[i]] = [a[i], a[s]];
+      const v = cost(req, a, initial, C); if (v < bc - 1e-9) { bc = v; best = a.slice(); } c[i]++; i = 0; }
+    else { c[i] = 0; i++; }
+  }
+  return best;
+}
+const METHODS = {
+  fifo:   {label: "FIFO (as listed)", run: (r) => fifo(r)},
+  greedy: {label: "Greedy", run: (r, i) => greedy(r, i)},
+  ils:    {label: "Iterated local search", run: (r, i) => ils(r, i)},
+  ga:     {label: "Genetic algorithm", run: (r, i) => genetic(r, i)},
+  exact:  {label: "Exact enumeration", run: (r, i) => enumerateBest(r, i), maxJobs: 8},
+};
+const PRIORITY = ["exact", "ils", "ga", "greedy", "fifo"];
+
+function slotInstructions(states, initialSlots, C = AMS_CAPACITY) {
+  const slots = [...initialSlots]; while (slots.length < C) slots.push(null);
+  return states.map(st => {
+    const acts = [];
+    for (const t of [...st].sort()) {
+      if (slots.includes(t)) continue;
+      let i = slots.indexOf(null);
+      if (i >= 0) acts.push([i + 1, null, t]);
+      else { i = slots.findIndex(x => !st.has(x)); acts.push([i + 1, slots[i], t]); }
+      slots[i] = t;
+    }
+    return {slots: slots.slice(), actions: acts};
+  });
+}
+function planWith(jobs, initialSlots, method) {
+  const req = jobs.map(j => new Set(j.filaments)); const initial = initialSlots.filter(Boolean);
+  for (const j of jobs) if (j.filaments.length > AMS_CAPACITY) throw new Error(`${j.name} needs more than ${AMS_CAPACITY} filaments`);
+  const t0 = performance.now(); const order = METHODS[method].run(req, initial); const r = bestLoading(req, order, initial);
+  const cpu = performance.now() - t0;
+  const steps = slotInstructions(r.states, initialSlots);
+  return {method, order, cpu_ms: cpu, total_s: r.time, events: r.events, swaps: r.swaps,
+    steps: order.map((i, n) => ({job: jobs[i].name, est: jobs[i].est_time_s, ...steps[n], k: r.k[n], seconds: switchTime(r.k[n])}))};
+}
+function availableMethods(n) { return PRIORITY.filter(m => !METHODS[m].maxJobs || n <= METHODS[m].maxJobs); }
+function pickBest(results) {
+  return results.slice().sort((a, b) => a.total_s - b.total_s || a.events - b.events || PRIORITY.indexOf(a.method) - PRIORITY.indexOf(b.method))[0];
+}
+if (typeof module !== "undefined") module.exports = {parseGcodeText, parse3mf, parseFile, ktns, cost, exactLoading, bestLoading, fifo, greedy, ils, genetic, enumerateBest, planWith, pickBest, availableMethods, paintStates, normalizeColor, METHODS};
+</script>
+
+<!-- ===================================================================== interface -->
+<script>
+const TYPES = ['PLA', 'PLA MATTE', 'PLA SILK', 'PETG', 'ABS', 'ASA', 'TPU', 'PLA-CF', 'PETG-CF', 'PA', 'PC'];
+const NAMES = [['black','#000000'],['white','#FFFFFF'],['grey','#808080'],['red','#FF0000'],['dark red','#8B1A1A'],['orange','#FF8000'],['yellow','#F2D21B'],['gold','#E8AD23'],['green','#2CA02C'],['dark green','#00AE42'],['blue','#1F5FBF'],['navy','#303B96'],['cyan','#00B1E5'],['purple','#7B3FA0'],['pink','#F4A6C0'],['brown','#7A4B2A'],['beige','#EADBC0'],['ivory','#F6F6F3']];
+const hx = (h, i) => parseInt(h.substr(1 + 2 * i, 2), 16);
+function cname(h) { if (!h || h[0] != '#') return ''; let best = '', bd = 1e9; for (const [n, c] of NAMES) { const d = [0, 1, 2].reduce((s, i) => s + (hx(h, i) - hx(c, i)) ** 2, 0); if (d < bd) { bd = d; best = n; } } return best; }
+const cdist = (a, b) => Math.sqrt([0, 1, 2].reduce((s, i) => s + (hx(a, i) - hx(b, i)) ** 2, 0));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const parts = k => { const i = k.indexOf(':'); return [k.slice(0, i), k.slice(i + 1)]; };
+const label = k => { const [t, c] = parts(k); return `${t} · ${cname(c)} ${c}`; };
+const parseXML = s => new DOMParser().parseFromString(s, 'application/xml').documentElement;
+let jobs = [], sel = -1, results = [], shown = null;
+
+// ----- filament history (localStorage, export/import as JSON)
+const HKEY = 'amsplanner.history.v1';
+const loadH = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || {}; } catch (e) { return {}; } };
+const saveH = h => { try { localStorage.setItem(HKEY, JSON.stringify(h)); } catch (e) {} };
+function record(t, c, lbl = '') { const h = loadH(); const k = `${t}:${c}`; const it = h[k] || (h[k] = {type: t, color: c, label: '', uses: 0}); it.uses++; it.last_used = new Date().toISOString().slice(0, 16).replace('T', ' '); if (lbl) it.label = lbl; saveH(h); return k; }
+const histList = () => Object.entries(loadH()).map(([key, v]) => ({key, ...v})).sort((a, b) => b.uses - a.uses || String(b.last_used).localeCompare(String(a.last_used)));
+function exportHist() { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(loadH(), null, 2)], {type: 'application/json'})); a.download = 'filament_history.json'; a.click(); }
+hi.onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const inc = JSON.parse(await f.text()); const h = loadH(); for (const [k, v] of Object.entries(inc)) { if (!h[k] || (v.uses || 0) > h[k].uses) h[k] = v; } saveH(h); loadHist(); } catch (err) { alert('Not a valid history file'); } hi.value = ''; };
+nt.innerHTML = TYPES.map(t => `<option>${t}</option>`).join('');
+
+function chip(k, cb) { const [t, c] = parts(k); const unk = t == '?';
+  return `<span class="chip ${unk ? 'unk' : ''}" ${cb ? `onclick="${cb}"` : ''} title="${esc(k)}"><span class="sw" style="background:${c[0] == '#' ? c : '#fff'}"></span>${unk ? '<b style="color:#b3261e">?</b>' : esc(t)} · ${cname(c)} <small>${esc(c)}</small></span>`; }
+const fmt = s => s == null ? '–' : (s >= 3600 ? Math.floor(s / 3600) + 'h ' : '') + Math.round(s % 3600 / 60) + 'm';
+
+function loadHist() {
+  const keep = [1, 2, 3, 4].map(i => { const e = document.getElementById('s' + i); return e ? e.value : ''; });
+  const hist = histList();
+  document.getElementById('hist').innerHTML = hist.map(h => chip(h.key, `addTo('${esc(h.key)}')`) + `<small style="color:#888">${h.uses}×</small>`).join(' ') || '<i class="hint">empty — it fills automatically each time you plan</i>';
+  const opts = [...new Set([...hist.map(h => h.key), ...jobs.flatMap(j => j.filaments).filter(k => !k.startsWith('?:'))])];
+  document.getElementById('ams').innerHTML = [1, 2, 3, 4].map(i => `<div class="slot"><b>Slot ${i}</b><select id="s${i}"><option value="">(empty)</option>${opts.map(k => `<option value="${esc(k)}" ${keep[i - 1] == k ? 'selected' : ''}>${esc(label(k))}</option>`).join('')}</select></div>`).join('');
+}
+function typeSelect(i, k) { const c = parts(k)[1];
+  const near = histList().filter(h => cdist(parts(h.key)[1], c) < 60).sort((x, y) => cdist(parts(x.key)[1], c) - cdist(parts(y.key)[1], c)).slice(0, 3);
+  return `<select onchange="setType(${i},'${esc(k)}',this.value)" onclick="event.stopPropagation()"><option value="">material for ${cname(c)} ${c}…</option>` +
+    (near.length ? `<optgroup label="use a spool from history">${near.map(h => `<option value="${esc(h.key)}">${esc(label(h.key))}</option>`).join('')}</optgroup>` : '') +
+    `<optgroup label="new spool, this colour">${TYPES.map(t => `<option value="${t}:${c}">${t}</option>`).join('')}</optgroup></select>`; }
+function render() {
+  document.querySelector('#jobs tbody').innerHTML = jobs.map((j, i) => {
+    const unk = j.filaments.filter(k => k.startsWith('?:')); const other = j.missing.filter(m => !m.includes('time') && !m.includes('type'));
+    return `<tr onclick="sel=${i};render()" style="background:${i == sel ? '#eef4ff' : ''}"><td>${esc(j.name)}</td><td>${j.filaments.map(k => chip(k, `rm(${i},'${esc(k)}')`)).join('')}
+    ${unk.map(k => `<div class="miss">${typeSelect(i, k)}</div>`).join('')}
+    ${other.length ? `<div class="miss">missing: ${esc(other.join(', '))} — select the job, then click the history</div>` : ''}
+    ${j.filaments.length > 4 ? '<div class="miss">more than 4 filaments: an AMS lite cannot print this job</div>' : ''}
+    ${!unk.length && !other.length && j.filaments.length ? '<div class="ok">✓ complete</div>' : ''}</td>
+    <td><span class="src">${j.source}</span></td><td>${fmt(j.est_time_s)}</td><td><span class="x" title="remove job" onclick="event.stopPropagation();jobs.splice(${i},1);sel=-1;render()">✕</span></td></tr>`; }).join('') ||
+    '<tr><td colspan="5" class="hint">No jobs yet. Add slicer files or a manual job.</td></tr>';
+  const tot = jobs.reduce((a, j) => a + (j.est_time_s || 0), 0);
+  jobsum.textContent = jobs.length ? `${jobs.length} job${jobs.length > 1 ? 's' : ''}${tot ? ', est. print time ' + fmt(tot) : ''}` : '';
+  loadHist();
+}
+function setType(i, k, v) { if (!v) return; const c = parts(k)[1]; jobs[i].filaments = [...new Set(jobs[i].filaments.map(x => x == k ? v : x))]; jobs[i].missing = jobs[i].missing.filter(m => !m.includes(c)); render(); }
+function addTo(k) { if (sel < 0) return alert('Select a job first'); const j = jobs[sel]; if (!j.filaments.includes(k)) j.filaments.push(k); j.missing = j.missing.filter(m => m.includes('time') || m.includes('type')); render(); }
+function rm(i, k) { event.stopPropagation(); jobs[i].filaments = jobs[i].filaments.filter(x => x != k); render(); }
+function addManual() { jobs.push({name: 'Manual job ' + (jobs.length + 1), filaments: [], source: 'manual', missing: ['filaments'], est_time_s: null}); sel = jobs.length - 1; render(); }
+function clearJobs() { if (jobs.length && confirm('Remove all jobs?')) { jobs = []; sel = -1; render(); cmpbox.innerHTML = out.innerHTML = ''; } }
+function loadExample() {
+  const C = {BK: 'PLA:#000000', WH: 'PLA:#FFFFFF', RD: 'PLA:#FF0000', BL: 'PLA:#1F5FBF', YE: 'PLA:#F2D21B', GN: 'PLA:#2CA02C', GY: 'PLA:#808080', OR: 'PLA:#FF8000', PB: 'PETG:#000000'};
+  const J = [['Logo keychains', 'BK WH'], ['Name plate', 'WH BL'], ['Cable clips', 'GY'], ['Phone stand', 'BK'], ['Mini figure', 'RD YE BK WH'], ['Planter', 'GN WH'],
+    ['Tool holder', 'PB'], ['Coaster set', 'OR BK'], ['Event badges', 'RD WH BL'], ['Toy car', 'RD BK GY'], ['Wall bracket', 'PB'], ['Shop sign', 'YE BK']];
+  jobs = J.map(([n, f], i) => ({name: `J${i + 1} ${n}`, filaments: f.split(' ').map(x => C[x]), source: 'example', missing: [], est_time_s: null}));
+  sel = -1; render(); ['BK', 'WH', 'RD', 'GY'].forEach((x, i) => { const e = document.getElementById('s' + (i + 1)); if (![...e.options].some(o => o.value == C[x])) e.add(new Option(label(C[x]), C[x])); e.value = C[x]; });
+}
+function newFil() { record(nt.value, nc.value.toUpperCase(), nl.value); nl.value = ''; loadHist(); }
+async function upload(files) {
+  for (const f of files) {
+    try { jobs.push(...await parseFile(f.name, await f.arrayBuffer(), parseXML)); }
+    catch (e) { alert(`${f.name}: ${e.message}`); }
+  }
+  render();
+}
+fi.onchange = e => { upload([...e.target.files]); fi.value = ''; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); upload([...e.dataTransfer.files]); };
+
+// ----- planning
+const tick = () => new Promise(r => setTimeout(r, 0));
+async function run() {
+  if (!jobs.length) return alert('Add at least one job');
+  if (jobs.some(j => !j.filaments.length)) return alert('Every job needs at least one filament');
+  if (jobs.some(j => j.filaments.some(k => k.startsWith('?:')))) return alert('Complete the missing materials first');
+  const initial = [1, 2, 3, 4].map(i => document.getElementById('s' + i).value || null);
+  const m = document.getElementById('m').value; let methods = m == 'auto' ? availableMethods(jobs.length) : [m];
+  if (m == 'exact' && jobs.length > 8) return alert('Exact enumeration is limited to 8 jobs (8! = 40,320 orders). Use Auto, ILS or GA.');
+  if (!methods.includes('fifo')) methods.push('fifo');
+  go.disabled = true; busy.style.display = 'inline'; results = [];
+  try {
+    for (const meth of methods) { busy.textContent = `computing ${METHODS[meth].label}…`; await tick(); results.push(planWith(jobs, initial, meth)); }
+  } catch (e) { alert(e.message); return; } finally { go.disabled = false; busy.style.display = 'none'; }
+  for (const j of jobs) for (const k of j.filaments) record(...parts(k));
+  const chosen = m == 'auto' ? pickBest(results) : results.find(r => r.method == m);
+  showCompare(m == 'auto', chosen); showPlan(chosen); loadHist();
+}
+function showCompare(auto, chosen) {
+  const fifoR = results.find(r => r.method == 'fifo'); const best = pickBest(results); const max = Math.max(...results.map(r => r.total_s), 1);
+  const rows = results.slice().sort((a, b) => PRIORITY.indexOf(a.method) - PRIORITY.indexOf(b.method));
+  cmpbox.innerHTML = `<h3>${auto ? 'Algorithm comparison (all run automatically)' : 'Selected algorithm vs. FIFO'}</h3>
+  <table id="cmp"><tr><th>Algorithm</th><th class="num">Changeover time</th><th style="width:22%"></th><th class="num">Visits</th><th class="num">Spools exchanged</th><th class="num">Saved vs FIFO</th><th class="num">CPU</th><th></th></tr>
+  ${rows.map(r => `<tr class="${r === best ? 'best' : ''} ${r === chosen ? 'shown' : ''}"><td>${METHODS[r.method].label}${r === best ? '<span class="tag">best</span>' : ''}</td>
+   <td class="num">${r.total_s.toFixed(1)} s</td><td><div class="bar" style="width:${(100 * r.total_s / max).toFixed(1)}%"></div></td>
+   <td class="num">${r.events}</td><td class="num">${r.swaps}</td>
+   <td class="num">${fifoR.total_s ? (100 * (fifoR.total_s - r.total_s) / fifoR.total_s).toFixed(1) + '%' : '–'}</td>
+   <td class="num">${r.cpu_ms < 1000 ? r.cpu_ms.toFixed(0) + ' ms' : (r.cpu_ms / 1000).toFixed(2) + ' s'}</td>
+   <td><button class="link" onclick="showPlan(results[${results.indexOf(r)}]);showCompare(${auto},results[${results.indexOf(r)}])">${r === chosen ? 'shown below' : 'view plan'}</button></td></tr>`).join('')}</table>
+  <div class="hint" style="margin-top:4px">${auto ? 'The best plan (lowest changeover time; ties: fewer visits) is shown below. Click “view plan” to try another algorithm\'s order.' : 'Choose “Auto” to compare all algorithms at once.'}
+  Times use the measured changeover means (46 / 74.5 / 103 / 134.7 s for 1–4 spools per visit).</div>`;
+}
+function showPlan(r) {
+  shown = r; const f = results.find(x => x.method == 'fifo'); const save = f.total_s - r.total_s, dv = f.events - r.events;
+  out.innerHTML = `<h3>Print plan: ${METHODS[r.method].label}</h3><div class="kpi"><div><b>${r.total_s.toFixed(1)} s</b>changeover time</div><div><b>${r.events}</b>operator visit${r.events == 1 ? '' : 's'}</div><div><b>${r.swaps}</b>spools exchanged</div>
+  <div class="good"><b>${save.toFixed(1)} s, ${dv} visit${dv == 1 ? '' : 's'}</b>saved vs FIFO (${f.total_s.toFixed(1)} s, ${f.events} visits)</div></div>
+  <table><tr><th>#</th><th>Job</th><th>Before printing</th><th>AMS slots 1–4 while printing</th><th>Est. time</th></tr>${r.steps.map((s, n) => `<tr><td>${n + 1}</td><td>${esc(s.job)}</td><td class="act">${s.actions.length ? s.actions.map(a => `<span>slot ${a[0]}: ${a[1] ? 'remove ' + esc(parts(a[1])[0]) + ' ' + cname(parts(a[1])[1]) + ', ' : ''}load ${chip(a[2])}</span>`).join('<br>') + `<br><small style="color:#777">${s.k} spool${s.k > 1 ? 's' : ''}, ${s.seconds} s</small>` : '<i style="color:#777">no change</i>'}</td><td>${s.slots.map(x => x ? chip(x) : '–').join('')}</td><td>${fmt(s.est)}</td></tr>`).join('')}</table>
+  <p class="row"><button class="sec" onclick="window.print()">Print plan</button><button class="sec" onclick="downloadCSV()">Download CSV</button></p>`;
+}
+function downloadCSV() {
+  const r = shown; if (!r) return; const q = s => `"${String(s).replace(/"/g, '""')}"`;
+  const lines = [['step', 'job', 'actions', 'spools', 'seconds', 'slot1', 'slot2', 'slot3', 'slot4'].join(',')].concat(r.steps.map((s, n) =>
+    [n + 1, q(s.job), q(s.actions.map(a => `slot ${a[0]}: ${a[1] ? 'remove ' + a[1] + ', ' : ''}load ${a[2]}`).join('; ')), s.k, s.seconds, ...s.slots.map(x => q(x || ''))].join(',')));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], {type: 'text/csv'})); a.download = `ams_plan_${r.method}.csv`; a.click();
+}
+render();
+</script></body></html>

@@ -7,7 +7,7 @@ from .history import FilamentHistory
 from .planner import plan
 from .model import Job
 
-HTML = os.path.join(os.path.dirname(__file__), "ui.html")
+HTML = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "AMSPlanner.html")
 
 
 class H(BaseHTTPRequestHandler):
@@ -51,7 +51,7 @@ class H(BaseHTTPRequestHandler):
                 for j in jobs:
                     for k in j.filaments:
                         if "?" not in k: self.hist.record(*k.split(":", 1))
-                return self._json(plan(jobs, data.get("initial", []), data.get("method", "ga")))
+                return self._json(plan(jobs, data.get("initial", []), data.get("method", "auto")))
         except Exception as e:  # report to the UI
             return self._json({"error": str(e)}, 400)
         self._json({"error": "unknown endpoint"}, 404)

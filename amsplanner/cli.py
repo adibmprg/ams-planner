@@ -30,7 +30,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan"); p.add_argument("files", nargs="+")
     p.add_argument("--ams", default="", help="current AMS content, slot order, TYPE:#RRGGBB comma-separated")
-    p.add_argument("--method", default="ga", choices=["fifo", "greedy", "ils", "ga"])
+    p.add_argument("--method", default="auto", choices=["auto", "fifo", "greedy", "ils", "ga"])
     sub.add_parser("serve")
     a = ap.parse_args(argv)
     if a.cmd == "serve":
@@ -46,7 +46,12 @@ def main(argv=None):
             if "?" not in k: hist.record(t, c)
     initial = [s.strip().upper() for s in a.ams.split(",") if s.strip()]
     r = plan(jobs, initial, a.method)
-    print(f"\nPrint order ({a.method}):")
+    if "comparison" in r:
+        print("\nAlgorithm comparison:")
+        for c in r["comparison"]:
+            print(f"  {c['method']:<7s} {c['total_s']:7.1f} s  {c['events']:3d} visits  {c['swaps']:3d} spools  {c['cpu_s']:.2f} s CPU"
+                  + ("   <- best" if c["method"] == r["method"] else ""))
+    print(f"\nPrint order ({r['method']}):")
     for n, st in enumerate(r["steps"], 1):
         acts = "; ".join(f"slot {s}: {o or '-'} -> {i or '-'}" for s, o, i in st["actions"]) or "no change"
         print(f" {n:2d}. {st['job']:<40s} {acts}")
